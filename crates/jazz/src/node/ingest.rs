@@ -5057,8 +5057,9 @@ where
                 batch.update_raw(
                     binding.storage_table,
                     global_current_primary_key(version.row_uuid()),
-                    groove::records::VersionedRecord::new(
-                        version.schema_version_alias().0,
+                    groove::records::VariantRecord::new(
+                        u32::try_from(version.schema_version_alias().0)
+                            .expect("schema aliases are allocated in Groove's variant-tag space"),
                         OwnedRecord::new(logical.raw().to_vec(), binding.descriptor),
                     ),
                 );
@@ -5119,8 +5120,9 @@ where
                 batch.insert_raw(
                     binding.storage_table,
                     history_primary_key(version),
-                    groove::records::VersionedRecord::new(
-                        version.schema_version_alias().0,
+                    groove::records::VariantRecord::new(
+                        u32::try_from(version.schema_version_alias().0)
+                            .expect("schema aliases are allocated in Groove's variant-tag space"),
                         OwnedRecord::new(logical.raw().to_vec(), binding.descriptor),
                     ),
                 );
