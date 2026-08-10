@@ -472,6 +472,40 @@ fn recovery_rebuilds_global_clock_from_accepted_transactions() {
     assert_eq!(reopened.clock.next_global_seq, GlobalSeq(3));
 }
 
+// This must remain an internal recovery regression: planting a persisted
+// u64::MAX sequence is not reachable through the public allocation API.
+#[test]
+fn recovery_rejects_global_sequence_allocation_after_max() {
+    let schema = schema();
+    let temp_dir = tempfile::tempdir().unwrap();
+    {
+        let mut node = open_node_at(&temp_dir, schema.clone());
+        let tx_id = node
+            .commit_mergeable(
+                MergeableCommit::new("todos", row(24), 24).cells(title_cells("last sequence")),
+            )
+            .unwrap();
+        mark_accepted_without_ahead_cleanup(&mut node, tx_id, GlobalSeq(u64::MAX));
+    }
+
+    let mut reopened = reopen_node_at(&temp_dir, node(1), schema);
+    assert_eq!(
+        reopened.clock.applied_global_above_watermark,
+        BTreeSet::from([GlobalSeq(u64::MAX)])
+    );
+    assert_eq!(reopened.clock.next_global_seq, GlobalSeq(u64::MAX));
+
+    let next_tx = reopened
+        .commit_mergeable(
+            MergeableCommit::new("todos", row(25), 25).cells(title_cells("after exhaustion")),
+        )
+        .unwrap();
+    assert!(matches!(
+        reopened.finalize_local_mergeable_commit(next_tx),
+        Err(Error::InvalidStoredValue("global sequence exhausted"))
+    ));
+}
+
 #[test]
 fn reopen_refuses_preexisting_sequenced_non_global_transaction() {
     // This is necessarily an internal recovery test: old receivers could
