@@ -308,6 +308,7 @@ type SubscriptionState = {
   deferredVisiblePublication: boolean;
   deferredVisibleReset: boolean;
   deferredTerminalOperations: NativeTerminalOperation[];
+  deferredTerminalCurrentRowCarrier: boolean;
   callback?: Function;
   cancelled: boolean;
 };
@@ -966,6 +967,7 @@ export class NativeRuntimeAdapter implements Runtime {
       deferredVisiblePublication: false,
       deferredVisibleReset: false,
       deferredTerminalOperations: [],
+      deferredTerminalCurrentRowCarrier: false,
       cancelled: false,
     });
     return handle;
@@ -1665,6 +1667,7 @@ export class NativeRuntimeAdapter implements Runtime {
         subscription.rowIndexByKey = applied.rowIndexByKey;
         subscription.opened = true;
         applied.wireDelta.terminalOperations = chunk.terminalOperations;
+        applied.wireDelta.terminalCurrentRowCarrier = chunk.terminalCurrentRowCarrier;
         this.publishSubscriptionRows(
           subscription,
           applied.wireDelta,
@@ -1685,6 +1688,8 @@ export class NativeRuntimeAdapter implements Runtime {
       subscription.deferredVisiblePublication = true;
       subscription.deferredVisibleReset ||= reset;
       subscription.deferredTerminalOperations.push(...(wireDelta.terminalOperations ?? []));
+      subscription.deferredTerminalCurrentRowCarrier ||=
+        wireDelta.terminalCurrentRowCarrier === true;
       return;
     }
 
@@ -1718,6 +1723,9 @@ export class NativeRuntimeAdapter implements Runtime {
       ...(wireDelta.terminalOperations ?? []),
     ];
     if (terminalOperations.length > 0) visibleDelta.terminalOperations = terminalOperations;
+    if (subscription.deferredTerminalCurrentRowCarrier || wireDelta.terminalCurrentRowCarrier) {
+      visibleDelta.terminalCurrentRowCarrier = true;
+    }
 
     subscription.callback?.(visibleDelta);
     if (visibleDelta === subscription.packedResetRows) {
@@ -1731,6 +1739,7 @@ export class NativeRuntimeAdapter implements Runtime {
     subscription.deferredVisiblePublication = false;
     subscription.deferredVisibleReset = false;
     subscription.deferredTerminalOperations = [];
+    subscription.deferredTerminalCurrentRowCarrier = false;
   }
 
   private subscriptionCallbacksAreSettledGated(subscription: SubscriptionState): boolean {
@@ -3892,6 +3901,7 @@ function normalizeSubscriptionChunk(chunk: unknown):
       reset?: boolean;
       delta: NativeSubscriptionDelta;
       terminalOperations?: NativeTerminalOperation[];
+      terminalCurrentRowCarrier?: boolean;
       settled?: boolean;
     }
   | {
@@ -3911,6 +3921,7 @@ function normalizeSubscriptionChunk(chunk: unknown):
     reset?: unknown;
     settled?: unknown;
     terminalOperations?: unknown;
+    terminalPayloadEncoding?: unknown;
   };
   if (record.type === "closed" || record.type === "Closed") {
     return { type: "closed" };
@@ -3932,6 +3943,7 @@ function normalizeSubscriptionChunk(chunk: unknown):
       terminalOperations: Array.isArray(record.terminalOperations)
         ? (record.terminalOperations as NativeTerminalOperation[])
         : undefined,
+      terminalCurrentRowCarrier: record.terminalPayloadEncoding === "current-row",
       settled: typeof record.settled === "boolean" ? record.settled : undefined,
     };
   }
