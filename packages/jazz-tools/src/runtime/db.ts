@@ -1048,6 +1048,7 @@ export class Db {
   }
 
   /**
+   * @internal Use {@link createDb()} instead.
    * Create a Db instance with a loaded runtime source.
    * @internal Use createDb() instead.
    */
@@ -1945,12 +1946,6 @@ export async function createDbWithRuntimeSource<RuntimeConfig extends DbConfig>(
       createRuntimeTokenOptions(ephemeralSeed, config.appId, 3600),
     );
     resolvedConfig = { ...resolvedConfig, jwtToken };
-  }
-
-  const driver = resolveStorageDriver(resolvedConfig.driver);
-
-  if (driver.type === "memory" && !resolvedConfig.serverUrl) {
-    throw new Error("driver.type='memory' requires serverUrl.");
   }
 
   const db = Db.create(resolvedConfig, runtimeSource as AnyRuntimeSource);
