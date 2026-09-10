@@ -1,93 +1,26 @@
 name: Preview jazz-tools alpha release
-
 on:
-  push:
-    branches:
-      - changeset-release/*
   workflow_dispatch:
-
-concurrency:
-  group: preview-jazz-tools-alpha-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
-
 jobs:
-  mark-preview-pending:
-    name: Mark release preview pending
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: startsWith(github.ref, 'refs/heads/changeset-release/')
-    permissions:
-      contents: read
-      statuses: write
-    steps:
-      - name: Set pending commit status
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        with:
-          script: |
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state: "pending",
-              context: "Release preview (alpha)",
-              description: "Release preview is running.",
-              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-            });
-
-  preview:
-    name: Release preview build
-    uses: ./.github/workflows/publish-jazz-tools-alpha.yml
-    # GitHub validates the full reusable-workflow permission graph before it
-    # evaluates dry-run guards. Match the publisher's maximum permission
-    # ceiling only on this job; dry-run never executes its write steps.
-    permissions:
-      actions: read
-      contents: write
-      id-token: write
-      pull-requests: read
+  packages:
+    uses: ./.github/workflows/build-jazz-packages.yml
     with:
-      mode: dry-run
-    secrets: inherit
-
-  mark-preview-final:
-    name: Mark release preview result
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: always() && startsWith(github.ref, 'refs/heads/changeset-release/')
-    needs: [mark-preview-pending, preview]
-    permissions:
-      contents: read
-      statuses: write
+      napi_matrix: '[{"os":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu","platform":"linux-x64-gnu","use_sccache":false},{"os":"macos-15-intel","target":"x86_64-apple-darwin","platform":"darwin-x64","use_sccache":false},{"os":"macos-15","target":"aarch64-apple-darwin","platform":"darwin-arm64","use_sccache":false}]'
+      include_rn: true
+  native-regression:
+    runs-on: ubuntu-24.04
+    env:
+      CACHE_SCOPE_REPOSITORY_ID: ${{ github.repository_id }}
     steps:
-      - name: Set final commit status
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        env:
-          PREVIEW_RESULT: ${{ needs.preview.result }}
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: ./.github/actions/setup-build
         with:
-          script: |
-            const result = process.env.PREVIEW_RESULT || "failure";
-            const stateByResult = {
-              success: "success",
-              failure: "failure",
-              cancelled: "error",
-              skipped: "error",
-            };
-            const state = stateByResult[result] || "error";
-            const descriptionByResult = {
-              success: "Release preview passed.",
-              failure: "Release preview failed.",
-              cancelled: "Release preview was cancelled.",
-              skipped: "Release preview was skipped.",
-            };
-            const description = descriptionByResult[result] || `Release preview ended with result: ${result}.`;
-
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state,
-              context: "Release preview (alpha)",
-              description,
-              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-            });
+          rust-targets: wasm32-unknown-unknown
+      - uses: ./.github/actions/install-rust-tool
+        with:
+          tool: wasm-pack@0.13.1
+      - run: pnpm build:correctness-artifacts
+      - run: node dev/gates/run-correctness-consumer.mjs -- pnpm --filter jazz-tools build
+      - run: pnpm --filter jazz-tools test:node src/backend/nullable-json.integration.test.ts
